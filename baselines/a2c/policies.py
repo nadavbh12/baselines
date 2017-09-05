@@ -164,7 +164,6 @@ def cnn_to_mlp(input_dim, num_actions, convs, hiddens, *args, **kwargs):
     policy: nn.Module
         The A2C policy
     """
-
     return CnnToMlp(input_dim, num_actions, convs, hiddens, *args, **kwargs)
 
 
@@ -183,23 +182,32 @@ class Mlp(nn.Module):
 
         layers = []
         self.input_flat_size = reduce(mul, input_dim, 1)
-        sizes = [self.input_flat_size] + hiddens + [num_actions]
+        sizes = [self.input_flat_size] + hiddens
         for i in range(len(sizes)-1):
             layers += [nn.Linear(sizes[i], sizes[i+1]), nn.ReLU(inplace=True)]
 
         self.net = nn.Sequential(*layers)
+        self.policy_layer = nn.Linear(sizes[-1], num_actions)
         self.softmax = nn.Softmax()
         self.value_layer = nn.Linear(sizes[-1], 1, nn.ReLU(inplace=True))
 
+        self._init_layers()
+
     def _init_layers(self):
-    #     TODO: implement
-        pass
+        linear_layers = [self.value_layer, self.policy_layer]
+        for l in self.net.modules():
+            if isinstance(l, nn.Linear):
+                linear_layers.append(l)
+
+        for l in linear_layers:
+            nn.init.orthogonal(l.weight.data, np.sqrt(2))
 
     def forward(self, x):
         x = x.view(-1, self.input_flat_size)
         x = self.net(x)
 
-        action_prob = self.softmax(x)
+        policy_logit = self.policy_layer(x)
+        action_prob = self.softmax(policy_logit)
         value = self.value_layer(x)
         return action_prob, value
 
