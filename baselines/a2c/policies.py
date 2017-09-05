@@ -121,6 +121,7 @@ class CnnToMlp(nn.Module):
             fc_layers += [nn.Linear(sizes[i], sizes[i + 1]), nn.ReLU(inplace=True)]
         self.features = nn.Sequential(*(conv_layers + fc_layers))
         self.softmax = nn.Softmax()
+        self.value_layer = nn.Linear(sizes[-1], 1, nn.ReLU(inplace=True))
 
         self.num_actions = num_actions
 
@@ -134,7 +135,7 @@ class CnnToMlp(nn.Module):
             x = self.features(x)
             action_prob = self.softmax(x)
             # TODO: Check the size below
-            value = nn.Linear(x.size()[1:], self.num_actions, nn.ReLU(inplace=True))
+            value = self.value_layer(x)
             return action_prob, value
 
     @staticmethod
@@ -188,6 +189,7 @@ class Mlp(nn.Module):
 
         self.net = nn.Sequential(*layers)
         self.softmax = nn.Softmax()
+        self.value_layer = nn.Linear(sizes[-1], 1, nn.ReLU(inplace=True))
 
     def _init_layers(self):
     #     TODO: implement
@@ -198,8 +200,7 @@ class Mlp(nn.Module):
         x = self.net(x)
 
         action_prob = self.softmax(x)
-        # TODO: Check the size below
-        value = nn.Linear(x.size()[1:], self.num_actions, nn.ReLU(inplace=True))
+        value = self.value_layer(x)
         return action_prob, value
 
 
