@@ -1,4 +1,5 @@
 import os
+import time
 
 import numpy as np
 import torch
@@ -25,7 +26,7 @@ class A2CActor:
         Parameters
         ----------
         results: DL_logger.ResultsLog
-            class to logg results
+            class to log results
         save_path: string
             path where results are saved
         lr: float
@@ -46,7 +47,6 @@ class A2CActor:
                 env.seed(seed + rank)
                 env = bench.Monitor(env, self.save_path and
                                     os.path.join(self.save_path, "{}.monitor.json".format(rank)))
-                gym.logger.setLevel(logging.WARN)
                 if env_id.startswith('CartPole'):
                     env = CartPoleNumpyWrapper(env)
                 elif env_id.startswith('MountainCar'):
@@ -108,7 +108,8 @@ class A2CActor:
         state = env.reset()
         # TODO: handle stacking of frames in ale/rle
         state = torch.from_numpy(state)
-        assert(state.shape[0] == num_workers and state.shape[1:] == torch.Size(list(env.observation_space.shape)))
+        assert(state.shape[0] == num_workers)
+        assert(state.shape[1:] == torch.Size(list(env.observation_space.shape)))
 
         avg_value_estimate = AverageMeter()
         avg_value_loss = AverageMeter()
@@ -184,33 +185,37 @@ class A2CActor:
             torch.nn.utils.clip_grad_norm(self.net.parameters(), max_grad_norm)
             optimizer.step()
 
-            # save results
-            self.results.add(step=self.T, value=avg_value_estimate.avg(),
-                             avg_entropy_loss=avg_entropy_loss.avg(),
-                             avg_policy_loss=avg_policy_loss.avg(),
-                             avg_value_loss=avg_value_loss.avg())
-            avg_value_estimate.reset()
-            avg_value_loss.reset()
-            avg_policy_loss.reset()
-            avg_entropy_loss.reset()
-
             episode_len = 0
             if self.T % 1000 == 0:
-                self.results.save()
+                # save results
+                json_results = bench.load_results(self.save_path)
+                self.results.add(step=self.T, value=avg_value_estimate.avg(),
+                                 avg_entropy_loss=avg_entropy_loss.avg(),
+                                 avg_policy_loss=avg_policy_loss.avg(),
+                                 avg_value_loss=avg_value_loss.avg(),
+                                 time=time.time() - json_results['initial_reset_time'],
+                                 mean_reward=np.mean(json_results['episode_rewards'][-10:])
+                                 )
+                avg_value_estimate.reset()
+                avg_value_loss.reset()
+                avg_policy_loss.reset()
+                avg_entropy_loss.reset()
                 # self.results.smooth('reward', window=10)
-                self.results.smooth('value', window=10)
-                self.results.smooth('avg_policy_loss', window=10)
-                self.results.smooth('avg_value_loss', window=10)
-                self.results.smooth('avg_entropy_loss', window=10)
+                # self.results.smooth('value', window=10)
+                # self.results.smooth('avg_policy_loss', window=10)
+                # self.results.smooth('avg_value_loss', window=10)
+                # self.results.smooth('avg_entropy_loss', window=10)
                 # self.results.plot(x='step', y='reward_smoothed',
                 #                   title='Reward', ylabel='Reward')
-                self.results.plot(x='step', y='value_smoothed',
+                self.results.plot(x='time', y='mean_reward',
+                                  title='mean_reward', ylabel='average reward')
+                self.results.plot(x='step', y='value',
                                   title='value', ylabel='Avg value estimate')
-                self.results.plot(x='step', y='avg_policy_loss_smoothed',
+                self.results.plot(x='step', y='avg_policy_loss',
                                   title='avg_policy_loss', ylabel='avg_policy_loss')
-                self.results.plot(x='step', y='avg_value_loss_smoothed',
+                self.results.plot(x='step', y='avg_value_loss',
                                   title='avg_value_loss', ylabel='avg_value_loss')
-                self.results.plot(x='step', y='avg_entropy_loss_smoothed',
+                self.results.plot(x='step', y='avg_entropy_loss',
                                   title='avg_entropy_loss', ylabel='avg_entropy_loss')
                 self.results.save()
 

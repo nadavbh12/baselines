@@ -11,6 +11,7 @@ try:
 except ImportError:
     import json
 
+
 class Monitor(Wrapper):
     EXT = "monitor.json"
     f = None
@@ -47,6 +48,7 @@ class Monitor(Wrapper):
         else:
             d['_filename'] = None
         return d
+
     def __setstate__(self, d):
         filename = d.pop('_filename')
         self.__dict__ = d
@@ -57,7 +59,6 @@ class Monitor(Wrapper):
                 self.f.readline()
             self.f.truncate()        
             self.logger = JSONLogger(self.f)
-
 
     def reset(self):
         if not self.allow_early_resets and not self.needs_reset:
@@ -98,6 +99,7 @@ class Monitor(Wrapper):
     def get_episode_lengths(self):
         return self.episode_lengths
 
+
 class JSONLogger(object):
     def __init__(self, file):
         self.file = file
@@ -114,10 +116,16 @@ class JSONLogger(object):
 class LoadMonitorResultsError(Exception):
     pass
 
+
 def get_monitor_files(dir):
     return glob(path.join(dir, "*" + Monitor.EXT))
 
+
 def load_results(dir, raw_episodes=False):
+    """
+    load data from *.monitor.json files.
+    Data is aggregated and sorted by time
+    """
     fnames = get_monitor_files(dir)
     if not fnames:
         raise LoadMonitorResultsError("no monitor files of the form *%s found in %s" % (Monitor.EXT, dir))

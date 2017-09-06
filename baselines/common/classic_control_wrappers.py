@@ -10,7 +10,7 @@ class MountainCarNumpyWrapper(gym.Wrapper):
 
     def reset(self):
         state = self.env.reset()
-        return state.astype(float)
+        return state.astype(np.float32)
 
 
 class CartPoleNumpyWrapper(gym.Wrapper):

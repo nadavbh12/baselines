@@ -18,6 +18,8 @@ def main():
                         help='results dir')
     parser.add_argument('--save', metavar='SAVE', default='',
                         help='saved folder')
+    parser.add_argument('--env_id', default='CartPole-v0',
+                        help='Gym env_id')
     parser.add_argument('--lr', type=float, default=0.0001,
                         help='learning rate (default: 0.0001)')
     parser.add_argument('--seed', help='RNG seed', type=int, default=0)
@@ -44,7 +46,7 @@ def main():
 
     agent = a2c_torch.A2CActor(results, save_path, lr=args.lr)
     agent.train(
-        'CartPole-v0',
+        env_id=args.env_id,
         num_workers=args.num_workers,
         seed=args.seed,
         max_timesteps=1000000,
@@ -58,8 +60,6 @@ def main():
     )
     print("Saving model to mountaincar_model.pkl")
     # agent.save("mountaincar_model.pkl")
-
-
 
 if __name__ == '__main__':
     main()
