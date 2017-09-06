@@ -69,11 +69,13 @@ class EzPickle(object):
 
 def set_global_seeds(i):
     try:
-        import tensorflow as tf
+        import torch
     except ImportError:
         pass
     else:
-        tf.set_random_seed(i)
+        torch.manual_seed(i)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(i)
     np.random.seed(i)
     random.seed(i)
 
