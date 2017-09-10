@@ -16,12 +16,12 @@ from baselines.a2c.policies import mlp
 from baselines import bench
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines.common.atari_wrappers import wrap_deepmind
-from baselines.common.classic_control_wrappers import CartPoleNumpyWrapper, MountainCarNumpyWrapper
+from baselines.common.classic_control_wrappers import NumpyWrapper, MountainCarNumpyWrapper
 from DL_Logger.utils import AverageMeter
 
 
 class A2CActor:
-    def __init__(self, results, save_path, lr):
+    def __init__(self, results, save_path):
         """
         Parameters
         ----------
@@ -29,12 +29,9 @@ class A2CActor:
             class to log results
         save_path: string
             path where results are saved
-        lr: float
-            learning rate
         """
         # self.net = policy_network
         self.T = 0
-        self.lr = lr
         self.results = results
         self.save_path = save_path
 
@@ -47,12 +44,11 @@ class A2CActor:
                 env.seed(seed + rank)
                 env = bench.Monitor(env, self.save_path and
                                     os.path.join(self.save_path, "{}.monitor.json".format(rank)))
-                if env_id.startswith('CartPole'):
-                    env = CartPoleNumpyWrapper(env)
+                if env_id.startswith('CartPole') or env_id.startswith('Acrobot'):
+                    env = NumpyWrapper(env)
                 elif env_id.startswith('MountainCar'):
                     env = MountainCarNumpyWrapper(env)
-                #     TODO: handle all other envs
-                else:
+                elif 'NoFrameskip' in env.spec.id:
                     env = wrap_deepmind(env)
                 return env
 
@@ -62,8 +58,8 @@ class A2CActor:
         env = SubprocVecEnv([make_env(i) for i in range(num_workers)])
         return env
 
-    def train(self, env_id, seed, num_workers, max_timesteps, gamma, ent_coef, value_coef, update_frequency, max_episode_len,
-              max_grad_norm, optimizer=None):
+    def train(self, env_id, seed, num_workers, max_timesteps, gamma, ent_coef, value_coef, num_steps_update,
+              max_grad_norm, log_interval, optimizer, optimizer_params, epsilon_greedy=False):
         """Performs training of an A2C thread
         Parameters
         ----------
@@ -81,30 +77,34 @@ class A2CActor:
             controls the strength of the entropy regularization term
         value_coef: float
             controls the strength of the value loss term
-        update_frequency: int
+        num_steps_update: int
             number of steps in A2C
-        max_episode_len: int
-            maximum length of an episode
         max_grad_norm: float
             maximum gradient of the norm of the weights
+        log_interval: int
+            frequency of logging
+        epsilon_greedy: bool
+            whether to use an ε-greedy policy
         optimizer: torch.Optimizer
             the network's optimizer
+        optimizer_params: dict
+            lr: float
+                learning rate
+            alpha: float
+                smoothing constant
+            eps: float
+                term added to the denominator to improve numerical stability
         """
 
         env = self.create_env_vec(env_id, seed, num_workers)
 
         # TODO: move the network initialization elsewhere
-        self.net = mlp([env.observation_space.shape[0]], env.action_space.n, [64])
+        self.net = mlp([env.observation_space.shape[0]], env.action_space.n, [16])
         self.net.train()
 
-        if optimizer is None:
-            optimizer = optim.RMSprop(self.net.parameters(), self.lr)
-        else:
-            optimizer = optimizer(self.net.parameters(), self.lr)
+        optimizer = optimizer(self.net.parameters(), **optimizer_params)
 
         episode_len = 0
-        episode_reward = 0
-        epoch = 0
         state = env.reset()
         # TODO: handle stacking of frames in ale/rle
         state = torch.from_numpy(state)
@@ -118,21 +118,35 @@ class A2CActor:
 
         while self.T < max_timesteps:
 
-            # if self.T > 10000:
-            #     env.render()
             rewards = []
             values = []
             entropies = []
             log_probs = []
             terminals = []
 
-            for t in range(update_frequency):
+            # TODO: set the parameters through args
+            if epsilon_greedy:
+                init_eps = 0.5
+                end_eps = 0.15
+                steps_eps = 50000
+                epsilon = max(end_eps, init_eps - self.T*(init_eps-end_eps)/steps_eps)
+
+            for t in range(num_steps_update):
+                # env.render()
                 action_prob, value = self.net(Variable(state))
                 avg_value_estimate.update(value.data.mean())
+                # print(action_prob.mean(0).data)
                 action = action_prob.multinomial().data
 
                 action_log_probs = torch.log(action_prob)
                 entropy = -(action_log_probs * action_prob).sum(1)
+
+                if epsilon_greedy:
+                    rand_numbers = torch.rand(num_workers)
+                    action_mask = rand_numbers.le(epsilon*torch.ones(rand_numbers.size()))
+
+                    random_actions = torch.multinomial(torch.ones(env.action_space.n), num_workers, replacement=True)
+                    action[action_mask] = random_actions[action_mask]
 
                 state, reward, terminal, info = env.step(action.numpy())
                 # TODO: is the code below necessary?
@@ -167,7 +181,7 @@ class A2CActor:
             R = Variable(torch.zeros(rewards.size())) # VALIDATE: is this the correct place for Variable()?
 
             R[:, -1] = last_value * mask[:, -1]  # bootstrap from last state
-            for i in reversed(range(update_frequency-1)):
+            for i in reversed(range(num_steps_update-1)):
                 R[:, i] = (rewards[:, i] + gamma * R[:, i+1])*mask[:, i]
 
             advantage = R - values
@@ -186,7 +200,7 @@ class A2CActor:
             optimizer.step()
 
             episode_len = 0
-            if self.T % 1000 == 0:
+            if self.T % log_interval == 0:
                 # save results
                 json_results = bench.load_results(self.save_path)
                 self.results.add(step=self.T, value=avg_value_estimate.avg(),
@@ -209,6 +223,8 @@ class A2CActor:
                 #                   title='Reward', ylabel='Reward')
                 self.results.plot(x='time', y='mean_reward',
                                   title='mean_reward', ylabel='average reward')
+                # self.results.plot(x='step', y='epsilon',
+                #                   title='epsilon', ylabel='epsilon')
                 self.results.plot(x='step', y='value',
                                   title='value', ylabel='Avg value estimate')
                 self.results.plot(x='step', y='avg_policy_loss',
@@ -218,6 +234,8 @@ class A2CActor:
                 self.results.plot(x='step', y='avg_entropy_loss',
                                   title='avg_entropy_loss', ylabel='avg_entropy_loss')
                 self.results.save()
+
+        env.close()
 
     def save(self):
         # TODO: implemented

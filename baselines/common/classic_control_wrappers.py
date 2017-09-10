@@ -13,7 +13,7 @@ class MountainCarNumpyWrapper(gym.Wrapper):
         return state.astype(np.float32)
 
 
-class CartPoleNumpyWrapper(gym.Wrapper):
+class NumpyWrapper(gym.Wrapper):
     def step(self, action):
         state, reward, terminal, info = self.env.step(action[0])
         state = state.astype(dtype=np.float32)
